@@ -9,7 +9,18 @@
   "author": "",
   "license": "ISC",
   "description": "",
-  "dependencies": {
-    "@midnight-ntwrk/midnight-js-contracts": "^2.0.2"
+   "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.1.0",
+    "googleapis": "^131.0.0",
+    "@midnight-ntwrk/midnight-js-contracts": "^0.1.0",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.0",
+    "ethers": "^6.8.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "eslint": "^8.52.0",
+    "prettier": "^3.0.3"
   }
 }
