@@ -1,45 +1,125 @@
-#!/usr/bin/env node
-import path from "path";
-import fs from "fs/promises";
-import os from "os";
-import { fileURLToPath } from "url";
-import { google } from "googleapis";
-import { OAuth2Client } from "google-auth-library";
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+    CallToolRequestSchema,
+    ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { google } from 'googleapis';
+import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { OAuth2Client } from 'google-auth-library';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import http from 'http';
+import open from 'open';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Use project root (cwd) for config by default so .gmail-mcp lives inside the project
 const PROJECT_ROOT = process.cwd();
-const CONFIG_DIR = process.env.GMAIL_CONFIG_DIR || path.join(PROJECT_ROOT, ".gmail-mcp");
-const OAUTH_PATH = process.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, "gcp-oauth.keys.json");
-const CREDENTIALS_PATH = process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, "credentials.json");
+const CONFIG_DIR =  path.join(PROJECT_ROOT, ".gmail-mcp");
+const OAUTH_PATH =  path.join(CONFIG_DIR, "gcp-oauth.keys.json");
+const CREDENTIALS_PATH = path.join(CONFIG_DIR, "credentials.json");
 let oauth2Client: any;
 
 /* --- Simple credential loader (expects credentials.json and gcp-oauth.keys.json to exist) --- */
-async function loadAndAuth() {
-  const credsRaw = await fs.readFile(CREDENTIALS_PATH, "utf8").catch(() => {
-    throw new Error(`Missing credentials file at ${CREDENTIALS_PATH}`);
-  });
-  const tokenRaw = await fs.readFile(OAUTH_PATH, "utf8").catch(() => {
-    throw new Error(`Missing oauth tokens file at ${OAUTH_PATH}`);
-  });
 
-  const creds = JSON.parse(credsRaw);
-  const tokens = JSON.parse(tokenRaw);
+async function loadCredentials() {
+    try {
+        // Create config directory if it doesn't exist
+        if (!process.env.GMAIL_OAUTH_PATH && !CREDENTIALS_PATH &&!fs.existsSync(CONFIG_DIR)) {
+            fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        }
 
-  const { client_id, client_secret, redirect_uris } = creds.installed ?? creds.web ?? {};
-  if (!client_id || !client_secret) {
-    throw new Error("Invalid credentials.json - missing client_id / client_secret");
-  }
+        // Check for OAuth keys in current directory first, then in config directory
+        const localOAuthPath = path.join(process.cwd(), 'gcp-oauth.keys.json');
+        let oauthPath = OAUTH_PATH;
 
-  oauth2Client = new OAuth2Client(client_id, client_secret, (redirect_uris && redirect_uris[0]) || undefined);
-  oauth2Client.setCredentials(tokens);
+        if (fs.existsSync(localOAuthPath)) {
+            // If found in current directory, copy to config directory
+            fs.copyFileSync(localOAuthPath, OAUTH_PATH);
+            console.log('OAuth keys found in current directory, copied to global config.');
+        }
+
+        if (!fs.existsSync(OAUTH_PATH)) {
+            console.error('Error: OAuth keys file not found. Please place gcp-oauth.keys.json in current directory or', CONFIG_DIR);
+            process.exit(1);
+        }
+
+        const keysContent = JSON.parse(fs.readFileSync(OAUTH_PATH, 'utf8'));
+        const keys = keysContent.installed || keysContent.web;
+
+        if (!keys) {
+            console.error('Error: Invalid OAuth keys file format. File should contain either "installed" or "web" credentials.');
+            process.exit(1);
+        }
+
+        const callback = process.argv[2] === 'auth' && process.argv[3] 
+        ? process.argv[3] 
+        : "http://localhost:3000/oauth2callback";
+
+        oauth2Client = new OAuth2Client(
+            keys.client_id,
+            keys.client_secret,
+            callback
+        );
+
+        if (fs.existsSync(CREDENTIALS_PATH)) {
+            const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+            oauth2Client.setCredentials(credentials);
+        }
+    } catch (error) {
+        console.error('Error loading credentials:', error);
+        process.exit(1);
+    }
 }
 
+async function authenticate() {
+    const server = http.createServer();
+    server.listen(3000);
+
+    return new Promise<void>((resolve, reject) => {
+        const authUrl = oauth2Client.generateAuthUrl({
+            access_type: 'offline',
+            scope: [
+                'https://www.googleapis.com/auth/gmail.modify',
+                'https://www.googleapis.com/auth/gmail.settings.basic'
+            ],
+        });
+
+        console.log('Please visit this URL to authenticate:', authUrl);
+        open(authUrl);
+
+        server.on('request', async (req, res) => {
+            if (!req.url?.startsWith('/oauth2callback')) return;
+
+            const url = new URL(req.url, 'http://localhost:3000');
+            const code = url.searchParams.get('code');
+
+            if (!code) {
+                res.writeHead(400);
+                res.end('No code provided');
+                reject(new Error('No code provided'));
+                return;
+            }
+
+            try {
+                const { tokens } = await oauth2Client.getToken(code);
+                oauth2Client.setCredentials(tokens);
+                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(tokens));
+
+                res.writeHead(200);
+                res.end('Authentication successful! You can close this window.');
+                server.close();
+                resolve();
+            } catch (error) {
+                res.writeHead(500);
+                res.end('Authentication failed');
+                reject(error);
+            }
+        });
+    });
+}
 /* --- Schemas --- */
 const DeleteEmailSchema = z.object({
   messageId: z.string().describe("ID of the email message to delete"),
@@ -96,8 +176,17 @@ const deletionTools = [
 
 
 async function main() {
-  await loadAndAuth();
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client as unknown as any });
+ await loadCredentials();
+
+    if (process.argv[2] === 'auth') {
+        await authenticate();
+        console.log('Authentication completed successfully');
+        process.exit(0);
+    }
+
+    // Initialize Gmail API
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
 
   const server = new Server({
     name: "gmail-delete-only",
