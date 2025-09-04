@@ -1,26 +1,35 @@
 {
   "name": "zk-gmail-midnight",
   "version": "1.0.0",
-  "main": "mcp-server.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "type": "module",
+  "main": "dist/mcp-server.js",
+ "scripts": {
+      "dev": "node --loader ts-node/esm mcp-server.ts",
+  "build": "tsc",
+  "start": "node dist/mcp-server.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
-   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.1.0",
-    "googleapis": "^131.0.0",
+  "dependencies": {
     "@midnight-ntwrk/midnight-js-contracts": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^0.4.0",
     "circomlibjs": "^0.1.7",
-    "snarkjs": "^0.7.0",
+    "dotenv": "^16.3.0",
     "ethers": "^6.8.0",
-    "dotenv": "^16.3.0"
+    "google-auth-library": "^9.4.1",
+    "googleapis": "^129.0.0",
+    "open": "^10.0.0",
+    "snarkjs": "^0.7.0",
+    "zod": "^3.22.4",
+    "zod-to-json-schema": "^3.22.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
     "eslint": "^8.52.0",
-    "prettier": "^3.0.3"
+    "nodemon": "^3.0.1",
+    "prettier": "^3.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }
