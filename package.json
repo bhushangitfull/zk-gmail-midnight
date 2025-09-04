@@ -4,7 +4,7 @@
   "type": "module",
   "main": "dist/mcp-server.js",
  "scripts": {
-      "dev": "node --loader ts-node/esm mcp-server.ts",
+  "dev": "node --loader ts-node/esm mcp-server.ts",
   "build": "tsc",
   "start": "node dist/mcp-server.js",
   "auth": "node dist/mcp-server.js auth"
